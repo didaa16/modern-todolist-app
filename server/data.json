@@ -1,0 +1,31 @@
+{
+  "tasks": [
+    {
+      "id": "1",
+      "title": "Study Kubernetes networking",
+      "description": "Learn about pods, services, and ingress",
+      "category": "Cloud",
+      "priority": "high",
+      "dueDate": "2024-01-16T00:00:00.000Z",
+      "completed": false,
+      "createdAt": "2024-01-15T00:00:00.000Z"
+    },
+    {
+      "id": "2",
+      "title": "Review Spring Boot security",
+      "description": "Understand authentication and authorization",
+      "category": "Backend",
+      "priority": "medium",
+      "dueDate": "2024-01-17T00:00:00.000Z",
+      "completed": false,
+      "createdAt": "2024-01-15T00:00:00.000Z"
+    }
+  ],
+  "categories": [
+    { "id": "1", "name": "Cloud", "color": "#3B82F6" },
+    { "id": "2", "name": "DevOps", "color": "#10B981" },
+    { "id": "3", "name": "AI", "color": "#8B5CF6" },
+    { "id": "4", "name": "Backend", "color": "#F59E0B" },
+    { "id": "5", "name": "Frontend", "color": "#EF4444" }
+  ]
+}
