@@ -2,7 +2,7 @@
 
 A feature-rich, full-stack task management application built with React and Express.js, fully containerized with Docker for easy deployment and persistent data storage.
 
-![App Screenshot](./docs/app-screenshot.png)
+![App Screenshot](./docs/app.png)
 
 ## ✨ Features
 
