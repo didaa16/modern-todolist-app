@@ -2,7 +2,7 @@
 
 A feature-rich, full-stack task management application built with React and Express.js, fully containerized with Docker for easy deployment and persistent data storage.
 
-![App Screenshot](https://via.placeholder.com/800x400/3B82F6/FFFFFF?text=Modern+ToDoList+App)
+![App Screenshot](https://ibb.co/C3mGxF7Y)
 
 ## ✨ Features
 
@@ -23,7 +23,7 @@ A feature-rich, full-stack task management application built with React and Expr
 
 ```bash
 # Clone the repository
-git clone https://github.com/dida1609/modern-todolist-app.git
+git clone https://github.com/didaa16/modern-todolist-app.git
 cd modern-todolist-app
 
 # Run with Docker Compose
@@ -181,7 +181,7 @@ docker exec -it todolist-app cat /app/data/data.json
 ### Setup
 ```bash
 # Clone repository
-git clone https://github.com/dida1609/modern-todolist-app.git
+git clone https://github.com/didaa16/modern-todolist-app.git
 cd modern-todolist-app
 
 # Install dependencies
@@ -219,8 +219,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 👨‍💻 Author
 
-**Dida1609**
-- GitHub: [@dida1609](https://github.com/dida1609)
+**Didaa16**
+- GitHub: [@didaa16](https://github.com/didaa16)
 
 ## 🙏 Acknowledgments
 
