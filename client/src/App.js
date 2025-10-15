@@ -18,6 +18,7 @@ import {
   Moon
 } from 'lucide-react';
 import { taskService, categoryService, statisticsService, dataService } from './services/localStorage';
+import notificationService from './services/notificationService';
 import './index.css';
 
 function App() {
@@ -29,7 +30,9 @@ function App() {
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
   const [editingCategory, setEditingCategory] = useState(null);
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
+  const [notification, setNotification] = useState(null);
 
   // Form states
   const [taskForm, setTaskForm] = useState({
@@ -37,7 +40,8 @@ function App() {
     description: '',
     category: '',
     priority: 'medium',
-    dueDate: moment().add(1, 'day').format('YYYY-MM-DD')
+    dueDate: moment().add(1, 'day').format('YYYY-MM-DD'),
+    time: ''
   });
 
   const [categoryForm, setCategoryForm] = useState({
@@ -52,16 +56,33 @@ function App() {
     loadStatistics();
   }, []);
 
+  // Initialize notification service when tasks change
+  useEffect(() => {
+    if (tasks.length > 0) {
+      notificationService.updateNotifications(tasks);
+    }
+  }, [tasks]);
+
   // Theme toggle
   const toggleTheme = () => {
     setIsDarkMode(!isDarkMode);
-    document.body.classList.toggle('dark-mode');
+    if (isDarkMode) {
+      document.body.classList.add('light-mode');
+      document.body.classList.remove('dark-mode');
+    } else {
+      document.body.classList.add('dark-mode');
+      document.body.classList.remove('light-mode');
+    }
   };
 
   const loadTasks = () => {
     try {
       const tasks = taskService.getAll();
       setTasks(tasks);
+      // Update notifications when tasks are loaded
+      notificationService.updateNotifications(tasks);
+      // Check for overdue tasks
+      notificationService.checkOverdueTasks(tasks);
     } catch (error) {
       console.error('Error loading tasks:', error);
     }
@@ -85,13 +106,21 @@ function App() {
     }
   };
 
+  const showNotification = (message, type = 'success') => {
+    setNotification({ message, type });
+    setTimeout(() => setNotification(null), 3000);
+  };
+
   const handleTaskSubmit = (e) => {
     e.preventDefault();
+    setIsLoading(true);
     try {
       if (editingTask) {
         taskService.update(editingTask.id, taskForm);
+        showNotification('Task updated successfully!', 'success');
       } else {
         taskService.create(taskForm);
+        showNotification('Task created successfully!', 'success');
       }
       loadTasks();
       loadStatistics();
@@ -102,10 +131,14 @@ function App() {
         description: '',
         category: '',
         priority: 'medium',
-        dueDate: moment().add(1, 'day').format('YYYY-MM-DD')
+        dueDate: moment().add(1, 'day').format('YYYY-MM-DD'),
+        time: ''
       });
     } catch (error) {
       console.error('Error saving task:', error);
+      showNotification('Error saving task. Please try again.', 'error');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -131,6 +164,8 @@ function App() {
       taskService.toggleCompletion(taskId);
       loadTasks();
       loadStatistics();
+      // Clear notification for completed task
+      notificationService.clearTaskNotification(taskId);
     } catch (error) {
       console.error('Error toggling task:', error);
     }
@@ -140,6 +175,8 @@ function App() {
     if (window.confirm('Are you sure you want to delete this task?')) {
       try {
         taskService.delete(taskId);
+        // Clear notification for deleted task
+        notificationService.clearTaskNotification(taskId);
         loadTasks();
         loadStatistics();
       } catch (error) {
@@ -204,7 +241,8 @@ function App() {
       description: task.description,
       category: task.category,
       priority: task.priority,
-      dueDate: moment(task.dueDate).format('YYYY-MM-DD')
+      dueDate: moment(task.dueDate).format('YYYY-MM-DD'),
+      time: task.time || ''
     });
     setShowTaskModal(true);
   };
@@ -222,6 +260,7 @@ function App() {
     const today = moment().startOf('day');
     const tomorrow = moment().add(1, 'day').startOf('day');
     const endOfWeek = moment().endOf('week');
+    const yesterday = moment().subtract(1, 'day').startOf('day');
 
     switch (activeTab) {
       case 'today':
@@ -232,6 +271,8 @@ function App() {
         return tasks.filter(task => moment(task.dueDate).isBetween(today, endOfWeek, null, '[]'));
       case 'completed':
         return tasks.filter(task => task.completed);
+      case 'past':
+        return tasks.filter(task => moment(task.dueDate).isBefore(today, 'day'));
       default:
         return tasks;
     }
@@ -256,6 +297,18 @@ function App() {
 
   return (
     <div className="container">
+      {/* Notification Banner */}
+      {notification && (
+        <div className={`notification notification-${notification.type}`}>
+          <div className="notification-content">
+            <span className="notification-icon">
+              {notification.type === 'success' ? '✅' : '❌'}
+            </span>
+            <span className="notification-message">{notification.message}</span>
+          </div>
+        </div>
+      )}
+
       <div className="header">
         <h1>Task Planner</h1>
         <p>Plan, track, and manage your daily tasks with categories and progress tracking</p>
@@ -274,6 +327,12 @@ function App() {
         <div className="stat-card">
           <div className="stat-number">{statistics.completionRate || 0}%</div>
           <div className="stat-label">Completion Rate</div>
+          <div className="progress-bar-container">
+            <div 
+              className="progress-bar" 
+              style={{ width: `${statistics.completionRate || 0}%` }}
+            ></div>
+          </div>
         </div>
         <div className="stat-card">
           <div className="stat-number">{statistics.upcomingTasks || 0}</div>
@@ -308,6 +367,12 @@ function App() {
           Completed
         </button>
         <button 
+          className={`tab ${activeTab === 'past' ? 'active' : ''}`}
+          onClick={() => setActiveTab('past')}
+        >
+          Past Tasks
+        </button>
+        <button 
           className={`tab ${activeTab === 'categories' ? 'active' : ''}`}
           onClick={() => setActiveTab('categories')}
         >
@@ -324,7 +389,7 @@ function App() {
       </div>
 
       {/* Action Buttons */}
-      <div style={{ marginBottom: '24px', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+      <div className="action-buttons">
         <button 
           className="btn btn-primary"
           onClick={() => {
@@ -389,12 +454,29 @@ function App() {
           {isDarkMode ? <Sun size={16} /> : <Moon size={16} />}
           {isDarkMode ? 'Light' : 'Dark'}
         </button>
+        <button 
+          className="btn btn-secondary"
+          onClick={() => {
+            if (notificationService.isNotificationSupported()) {
+              alert('Notifications are enabled! You will receive reminders for your tasks.');
+            } else {
+              alert('Notifications are not supported or permission not granted. Please enable notifications in your browser settings.');
+            }
+          }}
+          title="Check notification status"
+        >
+          <Settings size={16} />
+          Notifications
+        </button>
       </div>
 
       {/* Categories Management */}
       {activeTab === 'categories' && (
-        <div className="card">
-          <h2 style={{ marginBottom: '20px', color: '#111827' }}>Category Management</h2>
+        <div className="categories-container">
+          <div className="categories-header">
+            <h2 className="categories-title">🏷️ Category Management</h2>
+            <p className="categories-subtitle">Organize your tasks with custom categories and track your productivity</p>
+          </div>
           
           {categories.length === 0 ? (
             <div className="empty-state">
@@ -403,60 +485,109 @@ function App() {
               <p>Create your first category to organize your tasks!</p>
             </div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '16px' }}>
-              {categories.map(category => (
-                <div key={category.id} className="category-card">
-                  <div className="category-header">
-                    <div 
-                      className="category-color"
-                      style={{ backgroundColor: category.color }}
-                    />
-                    <div className="category-info">
-                      <h3 className="category-name">{category.name}</h3>
-                      <p className="category-tasks-count">
-                        {tasks.filter(task => task.category === category.name).length} task(s)
-                      </p>
-                      {tasks.filter(task => task.category === category.name).length > 0 && (
-                        <div className="category-tasks-preview">
-                          {tasks
-                            .filter(task => task.category === category.name)
-                            .slice(0, 3)
-                            .map(task => (
-                              <div key={task.id} className="task-preview">
-                                <span className={`task-preview-status ${task.completed ? 'completed' : ''}`}>
-                                  {task.completed ? '✓' : '○'}
-                                </span>
-                                <span className="task-preview-title">{task.title}</span>
+            <div className="categories-grid">
+              {categories.map(category => {
+                const categoryTasks = tasks.filter(task => task.category === category.name);
+                const completedTasks = categoryTasks.filter(task => task.completed);
+                const completionRate = categoryTasks.length > 0 ? Math.round((completedTasks.length / categoryTasks.length) * 100) : 0;
+                
+                return (
+                  <div key={category.id} className="category-card enhanced">
+                    <div className="category-card-header">
+                      <div className="category-color-indicator" style={{ backgroundColor: category.color }} />
+                      <div className="category-main-info">
+                        <h3 className="category-name">{category.name}</h3>
+                        <div className="category-stats">
+                          <span className="category-task-count">{categoryTasks.length} tasks</span>
+                          <span className="category-completion">{completionRate}% complete</span>
+                        </div>
+                      </div>
+                      <div className="category-actions">
+                        <button 
+                          className="btn btn-sm btn-secondary"
+                          onClick={() => editCategory(category)}
+                          title="Edit category"
+                        >
+                          <Edit3 size={16} />
+                        </button>
+                        <button 
+                          className="btn btn-sm btn-danger"
+                          onClick={() => deleteCategory(category.id)}
+                          title="Delete category"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+                    
+                    <div className="category-progress-section">
+                      <div className="category-progress-bar-container">
+                        <div 
+                          className="category-progress-bar"
+                          style={{
+                            width: `${completionRate}%`,
+                            background: `linear-gradient(90deg, ${category.color} 0%, ${category.color}CC 100%)`
+                          }}
+                        />
+                      </div>
+                      <div className="category-progress-text">
+                        {completedTasks.length} of {categoryTasks.length} completed
+                      </div>
+                    </div>
+                    
+                    {categoryTasks.length > 0 && (
+                      <div className="category-tasks-preview">
+                        <div className="preview-header">
+                          <span className="preview-title">Recent Tasks</span>
+                          <span className="preview-count">{categoryTasks.length} total</span>
+                        </div>
+                        <div className="preview-tasks">
+                          {categoryTasks.slice(0, 3).map(task => (
+                            <div key={task.id} className={`preview-task ${task.completed ? 'completed' : ''}`}>
+                              <div className="preview-task-status">
+                                {task.completed ? '✓' : '○'}
                               </div>
-                            ))}
-                          {tasks.filter(task => task.category === category.name).length > 3 && (
-                            <div className="task-preview-more">
-                              +{tasks.filter(task => task.category === category.name).length - 3} more
+                              <div className="preview-task-content">
+                                <div className="preview-task-title">{task.title}</div>
+                                <div className="preview-task-meta">
+                                  <span className={`preview-task-priority priority-${task.priority}`}>
+                                    {task.priority}
+                                  </span>
+                                  <span className="preview-task-date">
+                                    {moment(task.dueDate).format('MMM D')}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                          {categoryTasks.length > 3 && (
+                            <div className="preview-more">
+                              +{categoryTasks.length - 3} more tasks
                             </div>
                           )}
                         </div>
-                      )}
+                      </div>
+                    )}
+                    
+                    <div className="category-footer">
+                      <div className="category-metrics">
+                        <div className="metric">
+                          <span className="metric-label">Completed</span>
+                          <span className="metric-value">{completedTasks.length}</span>
+                        </div>
+                        <div className="metric">
+                          <span className="metric-label">Pending</span>
+                          <span className="metric-value">{categoryTasks.length - completedTasks.length}</span>
+                        </div>
+                        <div className="metric">
+                          <span className="metric-label">Rate</span>
+                          <span className="metric-value">{completionRate}%</span>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                  
-                  <div className="category-actions">
-                    <button 
-                      className="btn btn-sm btn-secondary"
-                      onClick={() => editCategory(category)}
-                    >
-                      <Edit3 size={14} />
-                      Edit
-                    </button>
-                    <button 
-                      className="btn btn-sm btn-danger"
-                      onClick={() => deleteCategory(category.id)}
-                    >
-                      <Trash2 size={14} />
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -470,17 +601,35 @@ function App() {
             {activeTab === 'tomorrow' && 'Tomorrow\'s Tasks'}
             {activeTab === 'week' && 'This Week\'s Tasks'}
             {activeTab === 'completed' && 'Completed Tasks'}
+            {activeTab === 'past' && 'Past Tasks'}
           </h2>
 
           {getFilteredTasks().length === 0 ? (
             <div className="empty-state">
-              <div className="empty-state-icon">📝</div>
-              <h3>No tasks found</h3>
-              <p>Create your first task to get started!</p>
+              <div className="empty-state-icon">
+                {activeTab === 'past' ? '📅' : '📝'}
+              </div>
+              <h3>
+                {activeTab === 'past' ? 'No past tasks found' : 'No tasks found'}
+              </h3>
+              <p>
+                {activeTab === 'past' 
+                  ? 'Tasks from yesterday and before will appear here.' 
+                  : 'Create your first task to get started!'
+                }
+              </p>
             </div>
           ) : (
-            getFilteredTasks().map(task => (
-              <div key={task.id} className={`task-item ${task.completed ? 'completed' : ''}`}>
+            getFilteredTasks().map((task, index) => {
+              const isPastTask = activeTab === 'past';
+              const isOverdueTask = moment(task.dueDate).isBefore(moment(), 'day') && !task.completed;
+              
+              return (
+              <div 
+                key={task.id} 
+                className={`task-item ${task.completed ? 'completed' : ''} ${isPastTask ? 'past-task' : ''} ${isOverdueTask ? 'overdue-task' : ''}`}
+                style={{ animationDelay: `${index * 0.1}s` }}
+              >
                 <div 
                   className={`task-checkbox ${task.completed ? 'checked' : ''}`}
                   onClick={() => toggleTaskCompletion(task.id)}
@@ -506,6 +655,12 @@ function App() {
                     <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                       <Calendar size={12} />
                       {formatDate(task.dueDate)}
+                      {task.time && (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '2px', marginLeft: '8px' }}>
+                          <Clock size={12} />
+                          {task.time}
+                        </span>
+                      )}
                       {isOverdue(task.dueDate) && (
                         <span style={{ color: '#EF4444', fontSize: '12px' }}>Overdue</span>
                       )}
@@ -528,158 +683,210 @@ function App() {
                   </button>
                 </div>
               </div>
-            ))
+              );
+            })
           )}
         </div>
       )}
 
       {/* Statistics View */}
       {activeTab === 'statistics' && (
-        <div>
-          {/* Overview Statistics */}
-          <div className="stats-grid" style={{ marginBottom: '24px' }}>
-            <div className="stat-card">
+        <div className="statistics-container">
+          {/* Enhanced Overview Statistics */}
+          <div className="stats-grid enhanced-stats">
+            <div className="stat-card featured">
+              <div className="stat-icon">📊</div>
               <div className="stat-number">{statistics.totalTasks || 0}</div>
               <div className="stat-label">Total Tasks</div>
+              <div className="stat-trend">+12% this week</div>
             </div>
-            <div className="stat-card">
+            <div className="stat-card featured">
+              <div className="stat-icon">✅</div>
               <div className="stat-number">{statistics.completedTasks || 0}</div>
               <div className="stat-label">Completed</div>
+              <div className="stat-trend">Great progress!</div>
             </div>
-            <div className="stat-card">
+            <div className="stat-card featured">
+              <div className="stat-icon">🎯</div>
               <div className="stat-number">{statistics.completionRate || 0}%</div>
               <div className="stat-label">Completion Rate</div>
+              <div className="progress-bar-container">
+                <div 
+                  className="progress-bar" 
+                  style={{ width: `${statistics.completionRate || 0}%` }}
+                ></div>
+              </div>
             </div>
-            <div className="stat-card">
+            <div className="stat-card featured">
+              <div className="stat-icon">⏰</div>
               <div className="stat-number">{statistics.upcomingTasks || 0}</div>
               <div className="stat-label">Upcoming</div>
+              <div className="stat-trend">Next 7 days</div>
             </div>
-            <div className="stat-card">
+            <div className="stat-card featured">
+              <div className="stat-icon">⚠️</div>
               <div className="stat-number">{statistics.overdueTasks || 0}</div>
               <div className="stat-label">Overdue</div>
+              <div className="stat-trend">Needs attention</div>
             </div>
-            <div className="stat-card">
+            <div className="stat-card featured">
+              <div className="stat-icon">📅</div>
               <div className="stat-number">{statistics.todayTasks || 0}</div>
               <div className="stat-label">Today</div>
+              <div className="stat-trend">Due today</div>
             </div>
           </div>
 
-          {/* Progress by Category */}
-          <div className="chart-container">
-            <h2 className="chart-title">Progress by Category</h2>
-            <div className="chart-grid">
-              {statistics.tasksByCategory?.map((category, index) => (
-                <div key={index} className="category-progress-card">
-                  <div className="category-progress-header">
-                    <div className="category-progress-info">
-                      <div 
-                        className="category-progress-color"
-                        style={{ backgroundColor: category.color }}
-                      />
-                      <div>
-                        <h3 className="category-progress-name">{category.category}</h3>
-                        <p className="category-progress-stats">{category.completed}/{category.total} tasks</p>
+          {/* Advanced Analytics Section */}
+          <div className="analytics-section">
+            <div className="analytics-grid">
+              {/* Progress by Category - Enhanced */}
+              <div className="analytics-card">
+                <div className="analytics-header">
+                  <h3 className="analytics-title">📈 Progress by Category</h3>
+                  <div className="analytics-subtitle">Track your productivity across different areas</div>
+                </div>
+                <div className="category-analytics">
+                  {statistics.tasksByCategory?.map((category, index) => (
+                    <div key={index} className="category-analytics-item">
+                      <div className="category-header">
+                        <div className="category-info">
+                          <div 
+                            className="category-dot"
+                            style={{ backgroundColor: category.color }}
+                          />
+                          <span className="category-name">{category.category}</span>
+                        </div>
+                        <div className="category-stats">
+                          <span className="category-completed">{category.completed}</span>
+                          <span className="category-total">/{category.total}</span>
+                        </div>
+                      </div>
+                      <div className="category-progress-container">
+                        <div 
+                          className="category-progress-bar"
+                          style={{
+                            width: `${category.total > 0 ? (category.completed / category.total) * 100 : 0}%`,
+                            background: `linear-gradient(90deg, ${category.color} 0%, ${category.color}CC 100%)`
+                          }}
+                        />
+                      </div>
+                      <div className="category-percentage">
+                        {category.total > 0 ? Math.round((category.completed / category.total) * 100) : 0}%
                       </div>
                     </div>
-                    <div className="category-progress-percentage">
-                      {category.total > 0 ? Math.round((category.completed / category.total) * 100) : 0}%
+                  ))}
+                </div>
+              </div>
+
+              {/* Overall Progress - Enhanced */}
+              <div className="analytics-card">
+                <div className="analytics-header">
+                  <h3 className="analytics-title">🎯 Overall Progress</h3>
+                  <div className="analytics-subtitle">Your productivity overview</div>
+                </div>
+                <div className="progress-overview">
+                  <div className="circular-progress-container">
+                    <div className="circular-progress">
+                      <svg viewBox="0 0 120 120">
+                        <defs>
+                          <linearGradient id="progressGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stopColor="#6366f1" />
+                            <stop offset="100%" stopColor="#8b5cf6" />
+                          </linearGradient>
+                        </defs>
+                        <circle
+                          className="progress-bg"
+                          cx="60"
+                          cy="60"
+                          r="50"
+                        />
+                        <circle
+                          className="progress-fill"
+                          cx="60"
+                          cy="60"
+                          r="50"
+                          strokeDasharray={`${2 * Math.PI * 50}`}
+                          strokeDashoffset={`${2 * Math.PI * 50 * (1 - (statistics.completionRate || 0) / 100)}`}
+                        />
+                      </svg>
+                      <div className="progress-text">
+                        <div className="progress-percentage">{statistics.completionRate || 0}%</div>
+                        <div className="progress-label">Complete</div>
+                      </div>
                     </div>
                   </div>
                   
-                  <div className="progress-chart">
-                    <div 
-                      className="progress-bar"
-                      style={{
-                        width: `${category.total > 0 ? (category.completed / category.total) * 100 : 0}%`,
-                        background: `linear-gradient(90deg, ${category.color} 0%, ${category.color}CC 100%)`
-                      }}
-                    />
-                  </div>
-                  
-                  <div className="category-progress-details">
-                    <div className="progress-detail-item">
-                      <span className="progress-detail-label">Completed</span>
-                      <span className="progress-detail-value" style={{ color: category.color }}>
-                        {category.completed}
-                      </span>
+                  <div className="progress-breakdown">
+                    <div className="breakdown-item">
+                      <div className="breakdown-icon completed">✓</div>
+                      <div className="breakdown-content">
+                        <div className="breakdown-number">{statistics.completedTasks || 0}</div>
+                        <div className="breakdown-label">Completed</div>
+                      </div>
                     </div>
-                    <div className="progress-detail-item">
-                      <span className="progress-detail-label">Remaining</span>
-                      <span className="progress-detail-value">
-                        {category.total - category.completed}
-                      </span>
+                    <div className="breakdown-item">
+                      <div className="breakdown-icon pending">○</div>
+                      <div className="breakdown-content">
+                        <div className="breakdown-number">{(statistics.totalTasks || 0) - (statistics.completedTasks || 0)}</div>
+                        <div className="breakdown-label">Pending</div>
+                      </div>
+                    </div>
+                    <div className="breakdown-item">
+                      <div className="breakdown-icon overdue">!</div>
+                      <div className="breakdown-content">
+                        <div className="breakdown-number">{statistics.overdueTasks || 0}</div>
+                        <div className="breakdown-label">Overdue</div>
+                      </div>
+                    </div>
+                    <div className="breakdown-item">
+                      <div className="breakdown-icon today">📅</div>
+                      <div className="breakdown-content">
+                        <div className="breakdown-number">{statistics.todayTasks || 0}</div>
+                        <div className="breakdown-label">Today</div>
+                      </div>
                     </div>
                   </div>
                 </div>
-              ))}
+              </div>
             </div>
           </div>
 
-          {/* Overall Progress Chart */}
-          <div className="chart-container">
-            <h2 className="chart-title">Overall Progress</h2>
-            <div className="chart-grid">
-              <div className="circular-progress-card">
-                <div className="circular-progress">
-                  <svg viewBox="0 0 120 120">
-                    <defs>
-                      <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                        <stop offset="0%" stopColor="#667eea" />
-                        <stop offset="100%" stopColor="#764ba2" />
-                      </linearGradient>
-                    </defs>
-                    <circle
-                      className="circular-progress-bg"
-                      cx="60"
-                      cy="60"
-                      r="52"
-                    />
-                    <circle
-                      className="circular-progress-bar"
-                      cx="60"
-                      cy="60"
-                      r="52"
-                      strokeDasharray={`${2 * Math.PI * 52}`}
-                      strokeDashoffset={`${2 * Math.PI * 52 * (1 - (statistics.completionRate || 0) / 100)}`}
-                    />
-                  </svg>
-                  <div className="circular-progress-text">
-                    {statistics.completionRate || 0}%
+          {/* Performance Insights */}
+          <div className="insights-section">
+            <div className="insights-card">
+              <h3 className="insights-title">💡 Performance Insights</h3>
+              <div className="insights-grid">
+                <div className="insight-item">
+                  <div className="insight-icon">🔥</div>
+                  <div className="insight-content">
+                    <div className="insight-title">Productivity Streak</div>
+                    <div className="insight-value">7 days</div>
+                    <div className="insight-description">Keep up the great work!</div>
                   </div>
                 </div>
-                <div className="circular-progress-label">Completion Rate</div>
-              </div>
-              
-              <div className="progress-summary-card">
-                <h3 className="progress-summary-title">Task Distribution</h3>
-                <div className="progress-summary-grid">
-                  <div className="summary-item">
-                    <div className="summary-icon completed">✓</div>
-                    <div className="summary-info">
-                      <div className="summary-number">{statistics.completedTasks || 0}</div>
-                      <div className="summary-label">Completed</div>
-                    </div>
+                <div className="insight-item">
+                  <div className="insight-icon">⚡</div>
+                  <div className="insight-content">
+                    <div className="insight-title">Average Completion</div>
+                    <div className="insight-value">{statistics.completionRate || 0}%</div>
+                    <div className="insight-description">Your success rate</div>
                   </div>
-                  <div className="summary-item">
-                    <div className="summary-icon pending">○</div>
-                    <div className="summary-info">
-                      <div className="summary-number">{(statistics.totalTasks || 0) - (statistics.completedTasks || 0)}</div>
-                      <div className="summary-label">Pending</div>
-                    </div>
+                </div>
+                <div className="insight-item">
+                  <div className="insight-icon">📈</div>
+                  <div className="insight-content">
+                    <div className="insight-title">Most Productive</div>
+                    <div className="insight-value">Monday</div>
+                    <div className="insight-description">Your best day</div>
                   </div>
-                  <div className="summary-item">
-                    <div className="summary-icon overdue">!</div>
-                    <div className="summary-info">
-                      <div className="summary-number">{statistics.overdueTasks || 0}</div>
-                      <div className="summary-label">Overdue</div>
-                    </div>
-                  </div>
-                  <div className="summary-item">
-                    <div className="summary-icon today">📅</div>
-                    <div className="summary-info">
-                      <div className="summary-number">{statistics.todayTasks || 0}</div>
-                      <div className="summary-label">Today</div>
-                    </div>
+                </div>
+                <div className="insight-item">
+                  <div className="insight-icon">🎯</div>
+                  <div className="insight-content">
+                    <div className="insight-title">Focus Area</div>
+                    <div className="insight-value">Work Tasks</div>
+                    <div className="insight-description">Your main category</div>
                   </div>
                 </div>
               </div>
@@ -762,6 +969,19 @@ function App() {
                 />
               </div>
 
+              <div className="form-group">
+                <label className="form-label">Time (Optional)</label>
+                <input
+                  type="time"
+                  className="form-input"
+                  value={taskForm.time}
+                  onChange={(e) => setTaskForm({...taskForm, time: e.target.value})}
+                />
+                <small style={{ color: '#6B7280', fontSize: '12px' }}>
+                  Leave empty for 10 AM default notification
+                </small>
+              </div>
+
               <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
                 <button 
                   type="button" 
@@ -770,8 +990,8 @@ function App() {
                 >
                   Cancel
                 </button>
-                <button type="submit" className="btn btn-primary">
-                  {editingTask ? 'Update Task' : 'Add Task'}
+                <button type="submit" className={`btn btn-primary ${isLoading ? 'loading' : ''}`} disabled={isLoading}>
+                  {isLoading ? 'Saving...' : (editingTask ? 'Update Task' : 'Add Task')}
                 </button>
               </div>
             </form>

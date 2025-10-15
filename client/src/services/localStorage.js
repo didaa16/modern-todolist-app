@@ -109,6 +109,7 @@ export const taskService = {
       category: taskData.category,
       priority: taskData.priority || 'medium',
       dueDate: taskData.dueDate || moment().add(1, 'day').format('YYYY-MM-DD'),
+      time: taskData.time || '',
       completed: false,
       createdAt: moment().format('YYYY-MM-DD')
     };
@@ -299,6 +300,12 @@ export const statisticsService = {
       return moment(task.dueDate).isSame(moment().add(1, 'day'), 'day');
     });
 
+    const pastTasks = tasks.filter(task => {
+      return moment(task.dueDate).isBefore(moment(), 'day');
+    });
+
+    const pastCompletedTasks = pastTasks.filter(task => task.completed);
+
     return {
       totalTasks,
       completedTasks,
@@ -308,7 +315,10 @@ export const statisticsService = {
       upcomingTasks: upcomingTasks.length,
       overdueTasks: overdueTasks.length,
       todayTasks: todayTasks.length,
-      tomorrowTasks: tomorrowTasks.length
+      tomorrowTasks: tomorrowTasks.length,
+      pastTasks: pastTasks.length,
+      pastCompletedTasks: pastCompletedTasks.length,
+      pastCompletionRate: pastTasks.length > 0 ? Math.round((pastCompletedTasks.length / pastTasks.length) * 100) : 0
     };
   },
 
