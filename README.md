@@ -2,7 +2,8 @@
 
 A feature-rich, full-stack task management application built with React and Express.js, fully containerized with Docker for easy deployment and persistent data storage.
 
-![App Screenshot](./docs/app.png)
+![App Screenshot](https://i.ibb.co/3J72ZKT/Capture-d-cran-2025-10-15-024939.png)
+
 
 ## ✨ Features
 
