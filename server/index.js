@@ -133,7 +133,7 @@ app.get('/api/tasks/:id', (req, res) => {
 
 // Create new task
 app.post('/api/tasks', (req, res) => {
-  const { title, description, category, priority, dueDate } = req.body;
+  const { title, description, category, priority, dueDate, time } = req.body;
 
   if (!title || !category) {
     return res.status(400).json({ message: 'Title and category are required' });
@@ -146,6 +146,7 @@ app.post('/api/tasks', (req, res) => {
     category,
     priority: priority || 'medium',
     dueDate: dueDate || moment().add(1, 'day').toISOString(),
+    time: time || '',
     completed: false,
     createdAt: moment().toISOString()
   };
