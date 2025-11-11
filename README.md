@@ -372,7 +372,7 @@ This project is licensed under the MIT License.
 - GitHub: [@didaa16](https://github.com/didaa16)
 - Docker Hub: [dida1609](https://hub.docker.com/u/dida1609)
 
-## 🙏 Acknowledgment
+## 🙏 Acknowledgments
 
 - React team for the amazing framework
 - Kubernetes community for orchestration platform
