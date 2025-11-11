@@ -4,67 +4,9 @@ const { v4: uuidv4 } = require('uuid');
 const moment = require('moment');
 const fs = require('fs');
 const path = require('path');
-const promClient = require('prom-client'); 
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-
-// ============= ADD ALL THIS BLOCK HERE =============
-// Create a Registry to register metrics
-const register = new promClient.Registry();
-
-// Add default metrics (CPU, memory, etc.)
-promClient.collectDefaultMetrics({ register });
-
-// Custom metrics
-const httpRequestDuration = new promClient.Histogram({
-  name: 'http_request_duration_seconds',
-  help: 'Duration of HTTP requests in seconds',
-  labelNames: ['method', 'route', 'status_code'],
-  registers: [register]
-});
-
-const httpRequestTotal = new promClient.Counter({
-  name: 'http_requests_total',
-  help: 'Total number of HTTP requests',
-  labelNames: ['method', 'route', 'status_code'],
-  registers: [register]
-});
-
-const tasksTotal = new promClient.Gauge({
-  name: 'todolist_tasks_total',
-  help: 'Total number of tasks',
-  registers: [register]
-});
-
-const tasksCompleted = new promClient.Gauge({
-  name: 'todolist_tasks_completed',
-  help: 'Number of completed tasks',
-  registers: [register]
-});
-
-// Middleware to track metrics
-app.use((req, res, next) => {
-  const start = Date.now();
-  
-  res.on('finish', () => {
-    const duration = (Date.now() - start) / 1000;
-    const route = req.route ? req.route.path : req.path;
-    
-    httpRequestDuration.labels(req.method, route, res.statusCode).observe(duration);
-    httpRequestTotal.labels(req.method, route, res.statusCode).inc();
-    
-    // Update task metrics
-    if (data && data.tasks) {
-      tasksTotal.set(data.tasks.length);
-      tasksCompleted.set(data.tasks.filter(t => t.completed).length);
-    }
-  });
-  
-  next();
-});
-// ============= END OF PROMETHEUS SETUP =============
-
 
 // Middleware
 app.use(cors());
