@@ -4,9 +4,67 @@ const { v4: uuidv4 } = require('uuid');
 const moment = require('moment');
 const fs = require('fs');
 const path = require('path');
+const promClient = require('prom-client'); 
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// ============= ADD ALL THIS BLOCK HERE =============
+// Create a Registry to register metrics
+const register = new promClient.Registry();
+
+// Add default metrics (CPU, memory, etc.)
+promClient.collectDefaultMetrics({ register });
+
+// Custom metrics
+const httpRequestDuration = new promClient.Histogram({
+  name: 'http_request_duration_seconds',
+  help: 'Duration of HTTP requests in seconds',
+  labelNames: ['method', 'route', 'status_code'],
+  registers: [register]
+});
+
+const httpRequestTotal = new promClient.Counter({
+  name: 'http_requests_total',
+  help: 'Total number of HTTP requests',
+  labelNames: ['method', 'route', 'status_code'],
+  registers: [register]
+});
+
+const tasksTotal = new promClient.Gauge({
+  name: 'todolist_tasks_total',
+  help: 'Total number of tasks',
+  registers: [register]
+});
+
+const tasksCompleted = new promClient.Gauge({
+  name: 'todolist_tasks_completed',
+  help: 'Number of completed tasks',
+  registers: [register]
+});
+
+// Middleware to track metrics
+app.use((req, res, next) => {
+  const start = Date.now();
+  
+  res.on('finish', () => {
+    const duration = (Date.now() - start) / 1000;
+    const route = req.route ? req.route.path : req.path;
+    
+    httpRequestDuration.labels(req.method, route, res.statusCode).observe(duration);
+    httpRequestTotal.labels(req.method, route, res.statusCode).inc();
+    
+    // Update task metrics
+    if (data && data.tasks) {
+      tasksTotal.set(data.tasks.length);
+      tasksCompleted.set(data.tasks.filter(t => t.completed).length);
+    }
+  });
+  
+  next();
+});
+// ============= END OF PROMETHEUS SETUP =============
+
 
 // Middleware
 app.use(cors());
@@ -292,8 +350,20 @@ app.get('/api/statistics', (req, res) => {
   });
 });
 
-// Add this health check endpoint to your server/index.js
+// ============= REPLACE YOUR EXISTING HEALTH CHECK SECTION WITH THIS =============
 
+// Metrics endpoint for Prometheus (ADD THIS - IT'S NEW)
+app.get('/metrics', async (req, res) => {
+  try {
+    res.set('Content-Type', register.contentType);
+    const metrics = await register.metrics();
+    res.end(metrics);
+  } catch (err) {
+    res.status(500).end(err);
+  }
+});
+
+// Health check endpoint for liveness probe (KEEP THIS - ALREADY EXISTS)
 app.get('/api/health', (req, res) => {
   res.status(200).json({
     status: 'healthy',
@@ -303,9 +373,8 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Readiness check endpoint for readiness probe
+// Readiness check endpoint for readiness probe (KEEP THIS - ALREADY EXISTS)
 app.get('/api/ready', (req, res) => {
-  // Check if data is loaded and server is ready to handle requests
   const isReady = data && data.tasks !== undefined && data.categories !== undefined;
   
   if (isReady) {
@@ -324,8 +393,6 @@ app.get('/api/ready', (req, res) => {
     });
   }
 });
-
-// ============= END OF HEALTH CHECK ENDPOINTS =============
 
 // Catch all handler: send back React's index.html file for client-side routing
 app.get('*', (req, res) => {
