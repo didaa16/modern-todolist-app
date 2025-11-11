@@ -4,15 +4,19 @@ const { v4: uuidv4 } = require('uuid');
 const moment = require('moment');
 const fs = require('fs');
 const path = require('path');
-const promClient = require('prom-client');
+const promClient = require('prom-client'); 
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Prometheus metrics setup
+// ============= ADD ALL THIS BLOCK HERE =============
+// Create a Registry to register metrics
 const register = new promClient.Registry();
+
+// Add default metrics (CPU, memory, etc.)
 promClient.collectDefaultMetrics({ register });
 
+// Custom metrics
 const httpRequestDuration = new promClient.Histogram({
   name: 'http_request_duration_seconds',
   help: 'Duration of HTTP requests in seconds',
@@ -39,9 +43,40 @@ const tasksCompleted = new promClient.Gauge({
   registers: [register]
 });
 
+// Middleware to track metrics
+app.use((req, res, next) => {
+  const start = Date.now();
+  
+  res.on('finish', () => {
+    const duration = (Date.now() - start) / 1000;
+    const route = req.route ? req.route.path : req.path;
+    
+    httpRequestDuration.labels(req.method, route, res.statusCode).observe(duration);
+    httpRequestTotal.labels(req.method, route, res.statusCode).inc();
+    
+    // Update task metrics
+    if (data && data.tasks) {
+      tasksTotal.set(data.tasks.length);
+      tasksCompleted.set(data.tasks.filter(t => t.completed).length);
+    }
+  });
+  
+  next();
+});
+// ============= END OF PROMETHEUS SETUP =============
+
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+
+// Serve static files from React build
+app.use(express.static(path.join(__dirname, 'public')));
+
 // Data persistence
 const DATA_FILE = path.join(__dirname, 'data', 'data.json');
 
+// Initialize data storage
 let data = {
   tasks: [],
   categories: []
@@ -55,6 +90,7 @@ function loadData() {
       data = JSON.parse(fileData);
       console.log('Data loaded from file');
     } else {
+      // Initialize with default data
       data = {
         tasks: [
           {
@@ -91,16 +127,20 @@ function loadData() {
     }
   } catch (error) {
     console.error('Error loading data:', error);
+    // Initialize with empty data if file is corrupted
     data = { tasks: [], categories: [] };
   }
 }
 
+// Save data to file
 function saveData() {
   try {
+    // Ensure data directory exists
     const dataDir = path.dirname(DATA_FILE);
     if (!fs.existsSync(dataDir)) {
       fs.mkdirSync(dataDir, { recursive: true });
     }
+    
     fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
     console.log('Data saved to file');
   } catch (error) {
@@ -108,33 +148,14 @@ function saveData() {
   }
 }
 
+// Load data on startup
 loadData();
 
-// Middleware to track metrics
-app.use((req, res, next) => {
-  const start = Date.now();
-  
-  res.on('finish', () => {
-    const duration = (Date.now() - start) / 1000;
-    const route = req.route ? req.route.path : req.path;
-    
-    httpRequestDuration.labels(req.method, route, res.statusCode).observe(duration);
-    httpRequestTotal.labels(req.method, route, res.statusCode).inc();
-    
-    if (data && data.tasks) {
-      tasksTotal.set(data.tasks.length);
-      tasksCompleted.set(data.tasks.filter(t => t.completed).length);
-    }
-  });
-  
-  next();
-});
-
-app.use(cors());
-app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+const { tasks, categories } = data;
 
 // Routes
+
+// Get all tasks
 app.get('/api/tasks', (req, res) => {
   const { category, completed, upcoming } = req.query;
   let filteredTasks = [...data.tasks];
@@ -159,6 +180,7 @@ app.get('/api/tasks', (req, res) => {
   res.json(filteredTasks.sort((a, b) => moment(a.dueDate).diff(moment(b.dueDate))));
 });
 
+// Get task by ID
 app.get('/api/tasks/:id', (req, res) => {
   const task = data.tasks.find(t => t.id === req.params.id);
   if (!task) {
@@ -167,6 +189,7 @@ app.get('/api/tasks/:id', (req, res) => {
   res.json(task);
 });
 
+// Create new task
 app.post('/api/tasks', (req, res) => {
   const { title, description, category, priority, dueDate, time } = req.body;
 
@@ -191,6 +214,7 @@ app.post('/api/tasks', (req, res) => {
   res.status(201).json(newTask);
 });
 
+// Update task
 app.put('/api/tasks/:id', (req, res) => {
   const taskIndex = data.tasks.findIndex(t => t.id === req.params.id);
   if (taskIndex === -1) {
@@ -203,6 +227,7 @@ app.put('/api/tasks/:id', (req, res) => {
   res.json(updatedTask);
 });
 
+// Delete task
 app.delete('/api/tasks/:id', (req, res) => {
   const taskIndex = data.tasks.findIndex(t => t.id === req.params.id);
   if (taskIndex === -1) {
@@ -214,6 +239,7 @@ app.delete('/api/tasks/:id', (req, res) => {
   res.status(204).send();
 });
 
+// Toggle task completion
 app.patch('/api/tasks/:id/toggle', (req, res) => {
   const taskIndex = data.tasks.findIndex(t => t.id === req.params.id);
   if (taskIndex === -1) {
@@ -225,10 +251,12 @@ app.patch('/api/tasks/:id/toggle', (req, res) => {
   res.json(data.tasks[taskIndex]);
 });
 
+// Get all categories
 app.get('/api/categories', (req, res) => {
   res.json(data.categories);
 });
 
+// Create new category
 app.post('/api/categories', (req, res) => {
   const { name, color } = req.body;
 
@@ -247,6 +275,7 @@ app.post('/api/categories', (req, res) => {
   res.status(201).json(newCategory);
 });
 
+// Update category
 app.put('/api/categories/:id', (req, res) => {
   const categoryIndex = data.categories.findIndex(c => c.id === req.params.id);
   if (categoryIndex === -1) {
@@ -264,12 +293,14 @@ app.put('/api/categories/:id', (req, res) => {
   res.json(updatedCategory);
 });
 
+// Delete category
 app.delete('/api/categories/:id', (req, res) => {
   const categoryIndex = data.categories.findIndex(c => c.id === req.params.id);
   if (categoryIndex === -1) {
     return res.status(404).json({ message: 'Category not found' });
   }
 
+  // Check if category is being used by any tasks
   const categoryInUse = data.tasks.some(task => task.category === data.categories[categoryIndex].name);
   if (categoryInUse) {
     return res.status(400).json({ 
@@ -282,6 +313,7 @@ app.delete('/api/categories/:id', (req, res) => {
   res.status(204).send();
 });
 
+// Get statistics
 app.get('/api/statistics', (req, res) => {
   const totalTasks = data.tasks.length;
   const completedTasks = data.tasks.filter(task => task.completed).length;
@@ -318,15 +350,7 @@ app.get('/api/statistics', (req, res) => {
   });
 });
 
-app.get('/metrics', async (req, res) => {
-  try {
-    res.set('Content-Type', register.contentType);
-    const metrics = await register.metrics();
-    res.end(metrics);
-  } catch (err) {
-    res.status(500).end(err);
-  }
-});
+// Add this health check endpoint to your server/index.js
 
 app.get('/api/health', (req, res) => {
   res.status(200).json({
@@ -337,7 +361,9 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Readiness check endpoint for readiness probe
 app.get('/api/ready', (req, res) => {
+  // Check if data is loaded and server is ready to handle requests
   const isReady = data && data.tasks !== undefined && data.categories !== undefined;
   
   if (isReady) {
@@ -357,6 +383,9 @@ app.get('/api/ready', (req, res) => {
   }
 });
 
+// ============= END OF HEALTH CHECK ENDPOINTS =============
+
+// Catch all handler: send back React's index.html file for client-side routing
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
