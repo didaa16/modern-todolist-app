@@ -1,0 +1,14 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+# Run linting
+echo "Running linters..."
+cd server && npm run lint
+cd ../client && npm run lint
+
+# Run tests
+echo "Running tests..."
+cd ../server && npm test
+cd ../client && npm test -- --watchAll=false
+
+echo "✅ Pre-commit checks passed!"

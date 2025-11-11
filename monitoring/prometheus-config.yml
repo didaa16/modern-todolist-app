@@ -1,0 +1,29 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'todolist-server'
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names:
+            - todolist
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        action: keep
+        regex: todolist-server
+      - source_labels: [__meta_kubernetes_pod_ip]
+        target_label: __address__
+        replacement: ${1}:5000
+
+  - job_name: 'todolist-client'
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names:
+            - todolist
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        action: keep
+        regex: todolist-client

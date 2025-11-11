@@ -292,6 +292,41 @@ app.get('/api/statistics', (req, res) => {
   });
 });
 
+// Add this health check endpoint to your server/index.js
+
+app.get('/api/health', (req, res) => {
+  res.status(200).json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
+
+// Readiness check endpoint for readiness probe
+app.get('/api/ready', (req, res) => {
+  // Check if data is loaded and server is ready to handle requests
+  const isReady = data && data.tasks !== undefined && data.categories !== undefined;
+  
+  if (isReady) {
+    res.status(200).json({
+      status: 'ready',
+      timestamp: new Date().toISOString(),
+      dataLoaded: true,
+      tasksCount: data.tasks.length,
+      categoriesCount: data.categories.length
+    });
+  } else {
+    res.status(503).json({
+      status: 'not ready',
+      timestamp: new Date().toISOString(),
+      dataLoaded: false
+    });
+  }
+});
+
+// ============= END OF HEALTH CHECK ENDPOINTS =============
+
 // Catch all handler: send back React's index.html file for client-side routing
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));

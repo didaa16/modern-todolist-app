@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  server:
+    image: dida1609/todolist-server:latest
+    ports:
+      - "5000:5000"
+    environment:
+      - NODE_ENV=production
+      - PORT=5000
+    volumes:
+      - server-data:/app/data
+    networks:
+      - todolist-network
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      update_config:
+        parallelism: 1
+        delay: 10s
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+  client:
+    image: dida1609/todolist-client:latest
+    ports:
+      - "3000:80"
+    networks:
+      - todolist-network
+    depends_on:
+      - server
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      update_config:
+        parallelism: 1
+        delay: 10s
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
+networks:
+  todolist-network:
+    driver: overlay
+
+volumes:
+  server-data:
+    driver: local

@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: todolist-server
+  namespace: todolist
+  labels:
+    app: todolist-server
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: todolist-server
+  template:
+    metadata:
+      labels:
+        app: todolist-server
+    spec:
+      containers:
+      - name: server
+        image: dida1609/todolist-server:latest
+        ports:
+        - containerPort: 5000
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: PORT
+          value: "5000"
+        volumeMounts:
+        - name: data
+          mountPath: /app/data
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 5000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 5000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: server-data-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: todolist-server-service
+  namespace: todolist
+spec:
+  selector:
+    app: todolist-server
+  ports:
+  - protocol: TCP
+    port: 5000
+    targetPort: 5000
+  type: ClusterIP

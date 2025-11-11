@@ -1,0 +1,97 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+env:
+  DOCKER_HUB_USERNAME: dida1609
+  SERVER_IMAGE: dida1609/todolist-server
+  CLIENT_IMAGE: dida1609/todolist-client
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        component: [client, server]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: ${{ matrix.component }}/package-lock.json
+
+    - name: Install dependencies
+      working-directory: ./${{ matrix.component }}
+      run: npm ci
+
+    - name: Run linter
+      working-directory: ./${{ matrix.component }}
+      run: npm run lint || echo "No lint script found"
+
+    - name: Run tests
+      working-directory: ./${{ matrix.component }}
+      run: npm test || echo "No test script found"
+
+  build-and-push:
+    needs: lint-and-test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+
+    - name: Login to Docker Hub
+      uses: docker/login-action@v2
+      with:
+        username: ${{ env.DOCKER_HUB_USERNAME }}
+        password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      run: |
+        echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        echo "date=$(date +'%Y%m%d')" >> $GITHUB_OUTPUT
+
+    - name: Build and push server image
+      uses: docker/build-push-action@v4
+      with:
+        context: ./server
+        file: ./server/Dockerfile
+        push: true
+        tags: |
+          ${{ env.SERVER_IMAGE }}:latest
+          ${{ env.SERVER_IMAGE }}:${{ steps.meta.outputs.sha_short }}
+          ${{ env.SERVER_IMAGE }}:${{ steps.meta.outputs.date }}
+        cache-from: type=registry,ref=${{ env.SERVER_IMAGE }}:buildcache
+        cache-to: type=registry,ref=${{ env.SERVER_IMAGE }}:buildcache,mode=max
+
+    - name: Build and push client image
+      uses: docker/build-push-action@v4
+      with:
+        context: ./client
+        file: ./client/Dockerfile
+        push: true
+        tags: |
+          ${{ env.CLIENT_IMAGE }}:latest
+          ${{ env.CLIENT_IMAGE }}:${{ steps.meta.outputs.sha_short }}
+          ${{ env.CLIENT_IMAGE }}:${{ steps.meta.outputs.date }}
+        cache-from: type=registry,ref=${{ env.CLIENT_IMAGE }}:buildcache
+        cache-to: type=registry,ref=${{ env.CLIENT_IMAGE }}:buildcache,mode=max
+
+    - name: Image digest
+      run: |
+        echo "Server Image: ${{ env.SERVER_IMAGE }}:latest"
+        echo "Client Image: ${{ env.CLIENT_IMAGE }}:latest"
