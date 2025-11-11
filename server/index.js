@@ -4,13 +4,102 @@ const { v4: uuidv4 } = require('uuid');
 const moment = require('moment');
 const fs = require('fs');
 const path = require('path');
+const client = require('prom-client');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// ============= PROMETHEUS METRICS SETUP =============
+// Create a Registry to register metrics
+const register = new client.Registry();
+
+// Add default metrics (CPU, memory, event loop lag, etc.)
+client.collectDefaultMetrics({ 
+  register,
+  prefix: 'todolist_server_',
+  gcDurationBuckets: [0.001, 0.01, 0.1, 1, 2, 5]
+});
+
+// Custom metrics
+const httpRequestDuration = new client.Histogram({
+  name: 'todolist_server_http_request_duration_seconds',
+  help: 'Duration of HTTP requests in seconds',
+  labelNames: ['method', 'route', 'status_code'],
+  buckets: [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 2, 5],
+  registers: [register]
+});
+
+const httpRequestTotal = new client.Counter({
+  name: 'todolist_server_http_requests_total',
+  help: 'Total number of HTTP requests',
+  labelNames: ['method', 'route', 'status_code'],
+  registers: [register]
+});
+
+const tasksTotal = new client.Gauge({
+  name: 'todolist_server_tasks_total',
+  help: 'Total number of tasks',
+  registers: [register]
+});
+
+const tasksCompletedTotal = new client.Gauge({
+  name: 'todolist_server_tasks_completed_total',
+  help: 'Total number of completed tasks',
+  registers: [register]
+});
+
+const categoriesTotal = new client.Gauge({
+  name: 'todolist_server_categories_total',
+  help: 'Total number of categories',
+  registers: [register]
+});
+
+const tasksByPriority = new client.Gauge({
+  name: 'todolist_server_tasks_by_priority',
+  help: 'Number of tasks by priority level',
+  labelNames: ['priority'],
+  registers: [register]
+});
+
+const tasksByCategory = new client.Gauge({
+  name: 'todolist_server_tasks_by_category',
+  help: 'Number of tasks by category',
+  labelNames: ['category'],
+  registers: [register]
+});
+
+const dataOperations = new client.Counter({
+  name: 'todolist_server_data_operations_total',
+  help: 'Total number of data operations (save/load)',
+  labelNames: ['operation', 'status'],
+  registers: [register]
+});
+
+// ============= END OF PROMETHEUS METRICS SETUP =============
+
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Prometheus metrics middleware - track all HTTP requests
+app.use((req, res, next) => {
+  const start = Date.now();
+  
+  res.on('finish', () => {
+    const duration = (Date.now() - start) / 1000;
+    const route = req.route ? req.route.path : req.path;
+    
+    httpRequestDuration
+      .labels(req.method, route, res.statusCode.toString())
+      .observe(duration);
+    
+    httpRequestTotal
+      .labels(req.method, route, res.statusCode.toString())
+      .inc();
+  });
+  
+  next();
+});
 
 // Serve static files from React build
 app.use(express.static(path.join(__dirname, 'public')));
@@ -24,6 +113,31 @@ let data = {
   categories: []
 };
 
+// Update metrics based on current data
+function updateMetrics() {
+  tasksTotal.set(data.tasks.length);
+  tasksCompletedTotal.set(data.tasks.filter(t => t.completed).length);
+  categoriesTotal.set(data.categories.length);
+  
+  // Update tasks by priority
+  const priorityCounts = { high: 0, medium: 0, low: 0 };
+  data.tasks.forEach(task => {
+    priorityCounts[task.priority] = (priorityCounts[task.priority] || 0) + 1;
+  });
+  tasksByPriority.labels('high').set(priorityCounts.high);
+  tasksByPriority.labels('medium').set(priorityCounts.medium);
+  tasksByPriority.labels('low').set(priorityCounts.low);
+  
+  // Update tasks by category
+  const categoryCounts = {};
+  data.tasks.forEach(task => {
+    categoryCounts[task.category] = (categoryCounts[task.category] || 0) + 1;
+  });
+  data.categories.forEach(cat => {
+    tasksByCategory.labels(cat.name).set(categoryCounts[cat.name] || 0);
+  });
+}
+
 // Load data from file
 function loadData() {
   try {
@@ -31,6 +145,7 @@ function loadData() {
       const fileData = fs.readFileSync(DATA_FILE, 'utf8');
       data = JSON.parse(fileData);
       console.log('Data loaded from file');
+      dataOperations.labels('load', 'success').inc();
     } else {
       // Initialize with default data
       data = {
@@ -66,9 +181,12 @@ function loadData() {
       };
       saveData();
       console.log('Default data initialized');
+      dataOperations.labels('init', 'success').inc();
     }
+    updateMetrics();
   } catch (error) {
     console.error('Error loading data:', error);
+    dataOperations.labels('load', 'error').inc();
     // Initialize with empty data if file is corrupted
     data = { tasks: [], categories: [] };
   }
@@ -85,15 +203,23 @@ function saveData() {
     
     fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
     console.log('Data saved to file');
+    dataOperations.labels('save', 'success').inc();
+    updateMetrics();
   } catch (error) {
     console.error('Error saving data:', error);
+    dataOperations.labels('save', 'error').inc();
   }
 }
 
 // Load data on startup
 loadData();
 
-const { tasks, categories } = data;
+// ============= PROMETHEUS METRICS ENDPOINT =============
+app.get('/metrics', async (req, res) => {
+  res.set('Content-Type', register.contentType);
+  res.end(await register.metrics());
+});
+// ============= END OF METRICS ENDPOINT =============
 
 // Routes
 
@@ -261,7 +387,7 @@ app.get('/api/statistics', (req, res) => {
   const completedTasks = data.tasks.filter(task => task.completed).length;
   const completionRate = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
 
-  const tasksByCategory = data.categories.map(category => ({
+  const tasksByCategoryStats = data.categories.map(category => ({
     category: category.name,
     total: data.tasks.filter(task => task.category === category.name).length,
     completed: data.tasks.filter(task => task.category === category.name && task.completed).length,
@@ -286,14 +412,13 @@ app.get('/api/statistics', (req, res) => {
     totalTasks,
     completedTasks,
     completionRate: Math.round(completionRate * 100) / 100,
-    tasksByCategory,
+    tasksByCategory: tasksByCategoryStats,
     tasksThisWeek: tasksThisWeek.length,
     upcomingTasks: upcomingTasks.length
   });
 });
 
-// Add this health check endpoint to your server/index.js
-
+// Health check endpoint
 app.get('/api/health', (req, res) => {
   res.status(200).json({
     status: 'healthy',
@@ -325,8 +450,6 @@ app.get('/api/ready', (req, res) => {
   }
 });
 
-// ============= END OF HEALTH CHECK ENDPOINTS =============
-
 // Catch all handler: send back React's index.html file for client-side routing
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -334,4 +457,5 @@ app.get('*', (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  console.log(`Metrics available at http://localhost:${PORT}/metrics`);
 });
